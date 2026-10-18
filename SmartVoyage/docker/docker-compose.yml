@@ -1,0 +1,127 @@
+# SmartVoyage 项目依赖的全部中间件
+#
+# 服务清单：
+#   mysql       3306    业务数据库（travel_rag）
+#   standalone  19530   Milvus 向量库（tour_groups collection）
+#   attu        8000    Milvus 可视化管理界面 → http://localhost:8000
+#   etcd        -       Milvus 元数据存储（内部用，不暴露端口）
+#   minio       -       Milvus 对象存储（内部用，不暴露端口）
+#   redis       6379    缓存
+#
+# 启动：  cd docker && docker-compose up -d
+# 查看：  docker-compose ps
+# 停止：  docker-compose stop      （保留数据）
+# 销毁：  docker-compose down      （容器删掉，volumes 目录里的数据还在）
+#
+# ⚠️ 前置条件：3306 端口必须空着。本机装了 MySQL 服务的话先停掉：
+#      net stop MySQL57        （服务名用 `sc query | findstr -i mysql` 查）
+
+services:
+  # ========== MySQL：业务数据库 ==========
+  mysql:
+    container_name: smart-mysql
+    image: mysql:5.7          # 与原本机环境同版本，避免 8.0 的字符集/认证插件差异 装系统的那个光盘
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: travel_rag          # 容器首次启动自动建库
+      MYSQL_USER: smart_yoyage            # 与 config.py 一致
+      MYSQL_PASSWORD: "123456"
+      TZ: Asia/Shanghai
+    command:
+      # 建库建表统一 utf8mb4，否则中文城市名、emoji 存进去会乱码
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./volumes/mysql:/var/lib/mysql              # 数据持久化到宿主机
+      - ./mysql-init:/docker-entrypoint-initdb.d    # 放 .sql 可在首次启动时自动导入
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ========== etcd：Milvus 的元数据存储（内部组件）==========
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_ENABLE_V2=true
+    volumes:
+      - ./volumes/etcd:/etcd/data
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd/data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ========== MinIO：Milvus 的对象存储（内部组件）==========
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    restart: unless-stopped
+    environment:
+      MINIO_ACCESS_KEY: minioadmin        # 仅 Milvus 内部使用，Python 客户端用不到
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ./volumes/minio:/minio/data
+    command: minio server /minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ========== Milvus：向量数据库本体 ==========
+  standalone:
+    container_name: milvus-standalone
+    # 多架构镜像，Docker on Windows 自动拉取 x86_64 版本
+    image: milvusdb/milvus:v2.4.4
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379          # 走容器网络，用服务名而不是 localhost
+      - MINIO_ADDRESS=minio:9000
+    # Milvus 2.x 默认 authorizationEnabled=false，即不开认证，
+    # 所以 Python 端 connections.connect(host, port) 无需用户名密码。
+    volumes:
+      - ./volumes/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"       # gRPC，pymilvus 连这个
+      - "9091:9091"         # metrics / health
+    depends_on:
+      - "etcd"
+      - "minio"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+
+  # ========== Attu：Milvus 可视化管理界面 ==========
+  # 浏览器打开 http://localhost:8000 就能看 collection、schema、数据、建索引、跑检索
+  attu:
+    container_name: milvus-attu
+    image: zilliz/attu:v2.4          # 大版本要和 Milvus 对齐（都是 2.4）
+    restart: unless-stopped
+    environment:
+      # 容器内访问 Milvus 要用服务名 standalone，不能写 localhost
+      # （localhost 在容器里指的是 attu 自己）
+      - MILVUS_URL=standalone:19530
+    ports:
+      - "8000:3000"       # 宿主机 8000 → 容器内 3000
+    depends_on:
+      - "standalone"
+
+networks:
+  default:
+    name: milvus-network

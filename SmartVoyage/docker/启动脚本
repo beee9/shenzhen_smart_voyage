@@ -1,0 +1,5 @@
+# -d 表示后台运行容器
+docker compose up -d
+
+# -d 指定docker-compose.yml
+docker compose -f D:\shenzhen_06\student\04-code\shenzhen_smart_voyage\SmartVoyage\docker\docker-compose.yml  up -d

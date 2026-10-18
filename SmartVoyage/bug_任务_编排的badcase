@@ -1,0 +1,127 @@
+D:\ProgramData\miniconda3\envs\lang_env_1\python.exe D:\shenzhen_06\student\04-code\shenzhen_smart_voyage\SmartVoyage\chat_service.py
+============================================================
+测试 4: planning_agent 任务规划
+============================================================
+INFO:python_a2a.client.network:Added existing client as agent 'WeatherQueryAssistant'
+INFO:python_a2a.client.network:Added existing client as agent 'TicketAssistant'
+INFO:python_a2a.client.network:Added existing client as agent 'TripAssistant'
+
+[单意图-天气（期望 need_plan=false）]
+  当前输入 : 明天深圳天气怎么样
+  intents  : ['weather']
+  _should_skip_planning -> True（正式链路会跳过规划，这里强制调用看结果）
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:10:14,355 - INFO - 规划响应: ```json
+{"need_plan": true, "reason": "用户请求查询特定城市及时间的天气信息，需调用天气查询服务", "steps": [{"step": 1, "action": "调用WeatherQueryAssistant查询深圳明天天气", "intent": "weather", "depends_on": 0}]}
+```
+  need_plan : True
+  reason    : 用户请求查询特定城市及时间的天气信息，需调用天气查询服务
+  steps(1):
+    step1 [weather] depends_on=0  调用WeatherQueryAssistant查询深圳明天天气
+
+[双意图-无依赖（天气+机票）]
+  当前输入 : 下周去上海玩，看看天气和机票
+  intents  : ['weather', 'flight']
+  _should_skip_planning -> True（正式链路会跳过规划，这里强制调用看结果）
+  need_plan : True
+  reason    : 用户请求同时包含天气查询和机票查询两个独立意图，需分别调用对应服务获取信息，两者无数据依赖关系，可并行或顺序执行。
+  steps(2):
+    step1 [weather] depends_on=0  调用WeatherQueryAssistant查询上海下周的天气
+    step2 [flight] depends_on=0  调用FlightQueryAssistant查询深圳到上海下周的机票
+
+[三意图-有依赖（机票→天气→景点）]
+  当前输入 : 帮我查深圳到北京的机票，再看下那边天气，推荐几个景点
+  intents  : ['flight', 'weather', 'attraction']
+  _should_skip_planning -> True（正式链路会跳过规划，这里强制调用看结果）
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:10:43,888 - INFO - 规划响应: {"need_plan": true, "reason": "用户请求同时包含天气查询和机票查询两个独立意图，需分别调用对应服务获取信息，两者无数据依赖关系，可并行或顺序执行。", "steps": [{"step": 1, "action": "调用WeatherQueryAssistant查询上海下周的天气", "intent": "weather", "depends_on": 0}, {"step": 2, "action": "调用FlightQueryAssistant查询深圳到上海下周的机票", "intent": "flight", "depends_on": 0}]}
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:10:53,907 - INFO - 规划响应: ```json
+{
+  "need_plan": true,
+  "reason": "用户请求包含机票查询、天气查询和景点推荐三个独立任务，需按逻辑顺序分步执行",
+  "steps": [
+    {
+      "step": 1,
+      "action": "调用FlightQueryAssistant查询深圳到北京的机票信息",
+      "intent": "flight",
+      "depends_on": 0
+    },
+    {
+      "step": 2,
+      "action": "调用WeatherQueryAssistant查询北京当前天气状况",
+      "intent": "weather",
+      "depends_on": 0
+    },
+    {
+      "step": 3,
+      "action": "调用AttractionRecommendationAssistant根据北京天气推荐适配景点",
+      "intent": "attraction",
+      "depends_on": 2
+    }
+  ]
+}
+```
+  need_plan : True
+  reason    : 用户请求包含机票查询、天气查询和景点推荐三个独立任务，需按逻辑顺序分步执行
+  steps(3):
+    step1 [flight] depends_on=0  调用FlightQueryAssistant查询深圳到北京的机票信息
+    step2 [weather] depends_on=0  调用WeatherQueryAssistant查询北京当前天气状况
+    step3 [attraction] depends_on=2  调用AttractionRecommendationAssistant根据北京天气推荐适配景点
+
+[查询+预订混合（order 依赖前置查询）]
+  当前输入 : 查下明天深圳到广州的高铁，合适的话直接订一张
+  intents  : ['train', 'order']
+  _should_skip_planning -> False（正式链路会进入规划）
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:11:03,244 - INFO - 规划响应: ```json
+{
+  "need_plan": true,
+  "reason": "用户需先查询高铁班次信息，再根据结果执行订票操作，存在明确先后依赖关系",
+  "steps": [
+    {
+      "step": 1,
+      "action": "调用TrainQueryAssistant查询明天深圳到广州的高铁班次",
+      "intent": "train",
+      "depends_on": 0
+    },
+    {
+      "step": 2,
+      "action": "根据查询结果选择合适班次并调用TicketBookingAssistant完成订票",
+      "intent": "order",
+      "depends_on": 1
+    }
+  ]
+}
+```
+  need_plan : True
+  reason    : 用户需先查询高铁班次信息，再根据结果执行订票操作，存在明确先后依赖关系
+  steps(2):
+    step1 [train] depends_on=0  调用TrainQueryAssistant查询明天深圳到广州的高铁班次
+    step2 [order] depends_on=1  根据查询结果选择合适班次并调用TicketBookingAssistant完成订票
+
+[完整行程规划-多步强依赖]
+  当前输入 : 国庆想去成都玩三天，机票酒店景点保险都帮我安排下
+  intents  : ['flight', 'attraction', 'insurance', 'trip_order']
+  _should_skip_planning -> True（正式链路会跳过规划，这里强制调用看结果）
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:12:00,865 - INFO - 规划响应: {"need_plan": true, "reason": "用户请求包含机票查询、景点推荐、保险购买及行程预订四个独立意图，需先获取航班日期与景点路线，再据此匹配对应保险方案，最后整合所有信息进行统一预订，存在明确的数据依赖与执行顺序。", "steps": [{"step": 1, "action": "调用FlightQueryAssistant查询国庆深圳到成都的机票", "intent": "flight", "depends_on": 0}, {"step": 2, "action": "调用AttractionRecommendAssistant查询成都三天的景点推荐", "intent": "attraction", "depends_on": 0}, {"step": 3, "action": "调用InsuranceQueryAssistant查询国庆成都行程的旅游保险", "intent": "insurance", "depends_on": 1}, {"step": 4, "action": "调用TripOrderAssistant处理国庆成都三天行程预订", "intent": "trip_order", "depends_on": 3}]}
+  need_plan : True
+  reason    : 用户请求包含机票查询、景点推荐、保险购买及行程预订四个独立意图，需先获取航班日期与景点路线，再据此匹配对应保险方案，最后整合所有信息进行统一预订，存在明确的数据依赖与执行顺序。
+  steps(4):
+    step1 [flight] depends_on=0  调用FlightQueryAssistant查询国庆深圳到成都的机票
+    step2 [attraction] depends_on=0  调用AttractionRecommendAssistant查询成都三天的景点推荐
+    step3 [insurance] depends_on=1  调用InsuranceQueryAssistant查询国庆成都行程的旅游保险
+    step4 [trip_order] depends_on=3  调用TripOrderAssistant处理国庆成都三天行程预订
+
+[空意图-边界用例]
+  当前输入 : 随便聊聊
+  intents  : []
+  _should_skip_planning -> True（正式链路会跳过规划，这里强制调用看结果）
+  need_plan : False
+  reason    : 用户请求为闲聊性质，未包含具体任务意图，无需执行结构化步骤
+  steps     : (空)
+INFO:httpx:HTTP Request: POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions "HTTP/1.1 200 OK"
+SmartVoage - 2026-08-22 17:12:15,543 - INFO - 规划响应: {"need_plan": false, "reason": "用户请求为闲聊性质，未包含具体任务意图，无需执行结构化步骤", "steps": []}
+
+Process finished with exit code 0

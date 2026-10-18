@@ -1,0 +1,31 @@
+# Local credentials and upload backups
+.env
+.env.*
+!.env.example
+.upload-private/
+
+# Python dependencies and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local tooling
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Runtime data
+*.log
+logs/
+SmartVoyage/docker/volumes/
